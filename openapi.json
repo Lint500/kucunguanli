@@ -1,0 +1,3423 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "库存微服务 API",
+    "description": "专业的库存管理微服务，支持高并发环境下的库存安全管理，防止超卖问题。\n                    \n                    ## 🚀 核心特性\n                    \n                    - **防超卖保障** - PostgreSQL 行级锁 + Redis 分布式锁双重保护\n                    - **高性能缓存** - Redis 缓存层加速读取，支持批量操作\n                    - **多层架构** - API / Celery / CLI 三种调用方式\n                    - **完整审计** - 详细的操作日志和状态追踪\n                    - **幂等保证** - 基于 Redis 的请求去重机制\n                    - **优雅降级** - Redis 故障时自动降级到数据库模式\n                    \n                    ## 📚 文档说明\n                    \n                    - **基础路径**: `/api/v1`\n                    - **健康检查**: `GET /health`\n                    - **API 文档**: `GET /docs` (Swagger UI)\n                    - **ReDoc 文档**: `GET /redoc` (ReDoc UI)\n                    \n                    ## 🔧 错误码说明\n                    \n                    - `200`: 请求成功\n                    - `400`: 请求参数错误\n                    - `404`: 资源未找到\n                    - `422`: 请求验证失败\n                    - `429`: 请求过于频繁\n                    - `500`: 服务器内部错误\n                    \n                    ## 🌐 当前运行端口：8000\n                    如果端口被占用，系统将自动尝试使用其他可用端口。",
+    "termsOfService": "https://example.com/terms/",
+    "contact": {
+      "name": "库存微服务团队",
+      "url": "https://github.com/your-org/inventory-service",
+      "email": "inventory@example.com"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "开发环境"
+    },
+    {
+      "url": "https://api.example.com",
+      "description": "生产环境"
+    }
+  ],
+  "paths": {
+    "/api/v1/inventory/stock/{product_id}": {
+      "get": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "查询商品库存",
+        "description": "查询指定商品的库存信息。\n    \n    **缓存策略：**\n    - 首先查询 Redis 缓存\n    - 缓存未命中则查询数据库\n    - 查询结果缓存 5 分钟\n    \n    **多仓支持：**\n    - 需要提供 warehouse_id 参数\n    - 返回完整库存信息（可用、预占、冻结、在途、安全库存）",
+        "operationId": "get_stock_api_v1_inventory_stock__product_id__get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "商品 ID",
+              "examples": [
+                1
+              ],
+              "title": "Product Id"
+            },
+            "description": "商品 ID"
+          },
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "仓库 ID",
+              "examples": [
+                "WH01"
+              ],
+              "default": "WH01",
+              "title": "Warehouse Id"
+            },
+            "description": "仓库 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "查询成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "warehouse_id": "WH01",
+                  "product_id": 1,
+                  "available_stock": 100,
+                  "reserved_stock": 10,
+                  "frozen_stock": 5,
+                  "in_transit_stock": 20,
+                  "safety_stock": 10,
+                  "total_stock": 135
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/stock/batch": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "批量查询商品库存",
+        "description": "批量查询多个商品的库存数量。\n    \n    **优势：**\n    - 单次请求查询多个商品\n    - Redis 管道优化批量操作\n    - 减少网络往返次数\n    \n    **限制：**\n    - 单次最多查询 100 个商品\n    - 建议按业务场景合理分批\n    \n    **多仓支持：**\n    - 需要提供 warehouse_id 参数",
+        "operationId": "batch_get_stocks_api_v1_inventory_stock_batch_post",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "仓库 ID",
+              "examples": [
+                "WH01"
+              ],
+              "default": "WH01",
+              "title": "Warehouse Id"
+            },
+            "description": "仓库 ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/BatchStockQueryRequest"
+                  }
+                ],
+                "description": "批量查询请求参数",
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "批量查询成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchStockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "1": 100,
+                    "2": 50,
+                    "3": 0
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/reserve": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "预占库存",
+        "description": "预占指定商品的库存数量，防止超卖。\n    \n    **特点：**\n    - 使用数据库行级锁确保原子性\n    - 支持分布式锁防止并发冲突\n    - 15 分钟后自动过期\n    - 幂等性保证\n    \n    **使用场景：**\n    - 用户下单时预占库存\n    - 购物车结算时锁定商品\n    \n    **多仓支持：**\n    - 需要提供 warehouse_id 参数",
+        "operationId": "reserve_stock_api_v1_inventory_reserve_post",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "仓库 ID",
+              "examples": [
+                "WH01"
+              ],
+              "title": "Warehouse Id"
+            },
+            "description": "仓库 ID"
+          },
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "商品 ID",
+              "examples": [
+                1
+              ],
+              "title": "Product Id"
+            },
+            "description": "商品 ID"
+          },
+          {
+            "name": "quantity",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "预占数量",
+              "examples": [
+                2
+              ],
+              "title": "Quantity"
+            },
+            "description": "预占数量"
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "订单 ID",
+              "examples": [
+                "ORD202401010001"
+              ],
+              "title": "Order Id"
+            },
+            "description": "订单 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "预占成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "预占成功",
+                  "data": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "库存不足或重复预占",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "insufficient_stock": {
+                    "summary": "库存不足",
+                    "value": {
+                      "success": false,
+                      "message": "库存不足"
+                    }
+                  },
+                  "duplicate_reservation": {
+                    "summary": "重复预占",
+                    "value": {
+                      "success": false,
+                      "message": "该订单已预占此商品"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/confirm/{order_id}": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "确认库存扣减",
+        "description": "确认预占的库存，实际扣减商品库存。\n    \n    **使用场景：**\n    - 用户支付成功后确认订单\n    - 系统自动确认超时订单\n    \n    **注意：**\n    - 只能确认状态为 RESERVED 的预占记录\n    - 确认后预占状态变为 CONFIRMED",
+        "operationId": "confirm_stock_api_v1_inventory_confirm__order_id__post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "订单 ID",
+              "examples": [
+                "ORD202401010001"
+              ],
+              "title": "Order Id"
+            },
+            "description": "订单 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "确认成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "确认成功",
+                  "data": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未找到有效的预占记录",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "未找到有效的预占记录"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/release/{order_id}": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "释放预占库存",
+        "description": "释放预占的库存，归还给可用库存。\n    \n    **使用场景：**\n    - 用户取消订单\n    - 订单超时未支付\n    - 系统自动释放过期预占\n    \n    **效果：**\n    - 增加可用库存\n    - 减少预占库存\n    - 更新预占状态为 RELEASED",
+        "operationId": "release_stock_api_v1_inventory_release__order_id__post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "订单 ID",
+              "examples": [
+                "ORD202401010001"
+              ],
+              "title": "Order Id"
+            },
+            "description": "订单 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "释放成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "释放成功",
+                  "data": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未找到有效的预占记录",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "未找到有效的预占记录"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/increase": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "入库/补货",
+        "description": "增加商品库存，用于入库、补货等场景。\n    \n    **使用场景：**\n    - 采购入库\n    - 退货入库\n    - 调拨入库\n    - 盘点盈亏调整\n    \n    **注意：**\n    - 如果库存记录不存在，会自动创建\n    - 会记录库存变更日志",
+        "operationId": "increase_stock_api_v1_inventory_increase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/IncreaseStockRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "入库请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "入库成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncreaseStockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "入库成功",
+                  "warehouse_id": "WH01",
+                  "product_id": 1,
+                  "before_stock": 100,
+                  "after_stock": 200,
+                  "quantity": 100
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/adjust": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "库存调整",
+        "description": "手动调整商品库存，支持增加、减少、设置为指定值。\n    \n    **调整类型：**\n    - increase: 增加库存\n    - decrease: 减少库存\n    - set: 设置为指定值\n    \n    **使用场景：**\n    - 盘点修正\n    - 库存纠错\n    - 人工干预",
+        "operationId": "adjust_stock_api_v1_inventory_adjust_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AdjustStockRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "调整请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "调整成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdjustStockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "调整成功",
+                  "warehouse_id": "WH01",
+                  "product_id": 1,
+                  "before_available": 100,
+                  "after_available": 110,
+                  "adjust_type": "increase",
+                  "quantity": 10
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/freeze": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "冻结库存",
+        "description": "冻结指定库存，冻结后不可用于预占和销售。\n    \n    **使用场景：**\n    - 待检品\n    - 待定分配\n    - 临时锁定\n    \n    **注意：**\n    - 只能冻结可用库存\n    - 冻结后库存从可用转为冻结状态",
+        "operationId": "freeze_stock_api_v1_inventory_freeze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/FreezeStockRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "冻结请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "冻结成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreezeStockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "冻结成功",
+                  "warehouse_id": "WH01",
+                  "product_id": 1,
+                  "before_frozen": 0,
+                  "after_frozen": 5
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/unfreeze": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "解冻库存",
+        "description": "解冻指定库存，解冻后库存回到可用状态。\n    \n    **使用场景：**\n    - 检验通过\n    - 分配取消\n    - 临时锁定释放",
+        "operationId": "unfreeze_stock_api_v1_inventory_unfreeze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/UnfreezeStockRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "解冻请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "解冻成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreezeStockResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "解冻成功",
+                  "warehouse_id": "WH01",
+                  "product_id": 1,
+                  "before_frozen": 5,
+                  "after_frozen": 0
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/reserve-batch": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "批量预占库存",
+        "description": "批量预占多个商品库存，保证事务一致性。\n    \n    **特点：**\n    - 全部成功或全部回滚\n    - 支持多仓库\n    - 使用分布式锁防止并发\n    \n    **限制：**\n    - 单次最多 100 个商品\n    - 预占有效期 15 分钟",
+        "operationId": "batch_reserve_stock_api_v1_inventory_reserve_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/BatchReserveRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "批量预占请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "批量预占成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchReserveResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "批量预占成功",
+                  "order_id": "ORD202401010001",
+                  "total_items": 2,
+                  "success_items": 2,
+                  "failed_items": 0,
+                  "details": [
+                    {
+                      "warehouse_id": "WH01",
+                      "product_id": 1,
+                      "success": true,
+                      "message": "预占成功"
+                    },
+                    {
+                      "warehouse_id": "WH01",
+                      "product_id": 2,
+                      "success": true,
+                      "message": "预占成功"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/release-batch": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "批量释放预占",
+        "description": "批量释放同一订单的所有预占库存。\n    \n    **使用场景：**\n    - 整单取消\n    - 整单退货\n    \n    **特点：**\n    - 一次性释放订单所有商品\n    - 批量操作性能优化",
+        "operationId": "batch_release_stock_api_v1_inventory_release_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/BatchReleaseRequest"
+                  }
+                ],
+                "title": "Request",
+                "description": "批量释放请求"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "批量释放成功",
+            "content": {
+              "application/json": {
+                "schema": {},
+                "example": {
+                  "success": true,
+                  "message": "批量释放成功",
+                  "order_id": "ORD202401010001",
+                  "released_count": 3
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/logs": {
+      "get": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "查询库存流水",
+        "description": "查询库存变更流水日志，支持分页和多种筛选条件。\n    \n    **筛选条件：**\n    - warehouse_id: 仓库 ID\n    - product_id: 商品 ID\n    - order_id: 订单 ID\n    - change_type: 变更类型\n    - start_date/end_date: 时间范围\n    \n    **返回字段：**\n    - 变更前后库存（可用、预占、冻结）\n    - 操作人、来源、备注",
+        "operationId": "get_inventory_logs_api_v1_inventory_logs_get",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "仓库 ID",
+              "title": "Warehouse Id"
+            },
+            "description": "仓库 ID"
+          },
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "商品 ID",
+              "title": "Product Id"
+            },
+            "description": "商品 ID"
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "订单 ID",
+              "title": "Order Id"
+            },
+            "description": "订单 ID"
+          },
+          {
+            "name": "change_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "变更类型",
+              "title": "Change Type"
+            },
+            "description": "变更类型"
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "开始时间 (ISO 格式)",
+              "title": "Start Date"
+            },
+            "description": "开始时间 (ISO 格式)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "结束时间 (ISO 格式)",
+              "title": "End Date"
+            },
+            "description": "结束时间 (ISO 格式)"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页数量",
+              "default": 50,
+              "title": "Page Size"
+            },
+            "description": "每页数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "查询成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedLogsResponse"
+                },
+                "example": {
+                  "success": true,
+                  "data": [
+                    {
+                      "id": 1,
+                      "warehouse_id": "WH01",
+                      "product_id": 1,
+                      "order_id": "ORD202401010001",
+                      "change_type": "RESERVE",
+                      "quantity": -2,
+                      "before_available": 100,
+                      "after_available": 98,
+                      "before_reserved": 0,
+                      "after_reserved": 2,
+                      "before_frozen": 0,
+                      "after_frozen": 0,
+                      "created_at": "2024-01-01T10:00:00",
+                      "operator": "order_service_ORD202401010001",
+                      "source": "order_service"
+                    }
+                  ],
+                  "total": 1,
+                  "page": 1,
+                  "page_size": 50,
+                  "total_pages": 1
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/cleanup/manual": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "Manual Cleanup",
+        "description": "手动触发清理任务（方式二：API 直接调用 Service）",
+        "operationId": "manual_cleanup_api_v1_inventory_cleanup_manual_post",
+        "parameters": [
+          {
+            "name": "batch_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 500,
+              "title": "Batch Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/cleanup/celery": {
+      "post": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "Celery Cleanup",
+        "description": "触发 Celery 异步清理任务（方式三：Celery 调用）",
+        "operationId": "celery_cleanup_api_v1_inventory_cleanup_celery_post",
+        "parameters": [
+          {
+            "name": "batch_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 500,
+              "title": "Batch Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/cleanup/status/{task_id}": {
+      "get": {
+        "tags": [
+          "库存管理",
+          "库存管理"
+        ],
+        "summary": "Get Cleanup Status",
+        "description": "查询 Celery 任务执行状态",
+        "operationId": "get_cleanup_status_api_v1_inventory_cleanup_status__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/health": {
+      "get": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "健康检查性能测试",
+        "description": "测试健康检查接口的性能\n\n- **concurrency**: 并发请求数\n- **requests**: 总请求数\n\n返回 QPS、延迟、成功率等性能指标",
+        "operationId": "test_health_api_v1_perf_health_get",
+        "parameters": [
+          {
+            "name": "concurrency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "description": "并发数",
+              "default": 100,
+              "title": "Concurrency"
+            },
+            "description": "并发数"
+          },
+          {
+            "name": "requests",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "description": "请求数",
+              "default": 1000,
+              "title": "Requests"
+            },
+            "description": "请求数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/single": {
+      "post": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "单个 API 性能测试",
+        "description": "测试单个 API 的性能\n\n可以指定任意 API 路径、方法和数据进行测试",
+        "operationId": "test_single_api_api_v1_perf_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SinglePerfTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/inventory": {
+      "post": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "库存 API 性能测试套件",
+        "description": "测试所有库存相关 API 的性能\n\n包括：查询、预占、确认、释放、增加等操作",
+        "operationId": "test_inventory_apis_api_v1_perf_inventory_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryPerfTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryPerfResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/stress": {
+      "post": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "阶梯式压力测试",
+        "description": "阶梯式压力测试\n\n从低并发到高并发逐步增加，观察系统性能变化",
+        "operationId": "test_stress_api_v1_perf_stress_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StressTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StressTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/custom": {
+      "post": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "自定义组合测试",
+        "description": "自定义多个 API 的组合测试\n\n可以同时测试多个不同的 API",
+        "operationId": "test_custom_api_v1_perf_custom_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryPerfResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/results/{filename}": {
+      "get": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "获取测试结果",
+        "description": "获取历史测试结果",
+        "operationId": "get_test_result_api_v1_perf_results__filename__get",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "删除测试结果",
+        "description": "删除指定的测试结果",
+        "operationId": "delete_test_result_api_v1_perf_results__filename__delete",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/results": {
+      "get": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "获取所有测试结果列表",
+        "description": "获取所有测试结果文件列表",
+        "operationId": "list_test_results_api_v1_perf_results_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/perf/metrics/summary": {
+      "get": {
+        "tags": [
+          "性能测试"
+        ],
+        "summary": "获取性能指标说明",
+        "description": "获取性能指标详细说明",
+        "operationId": "get_metrics_description_api_v1_perf_metrics_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/cpu": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取 CPU 使用率",
+        "description": "获取 CPU 使用率信息\n\n返回 CPU 总体使用率、核心数、频率等信息",
+        "operationId": "get_cpu_usage_api_v1_system_cpu_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpuResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/memory": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取内存使用率",
+        "description": "获取内存使用率信息\n\n返回内存总量、可用内存、已使用内存和使用率",
+        "operationId": "get_memory_usage_api_v1_system_memory_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/disk": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取磁盘使用率",
+        "description": "获取磁盘使用率信息\n\n返回磁盘总量、已使用空间、可用空间和使用率",
+        "operationId": "get_disk_usage_api_v1_system_disk_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiskResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/network": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取网络流量",
+        "description": "获取网络流量信息\n\n返回发送/接收的字节数、数据包数、错误数等",
+        "operationId": "get_network_traffic_api_v1_system_network_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/db-pool": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取数据库连接池状态",
+        "description": "获取数据库连接池状态\n\n返回连接池大小、已借出连接数、溢出连接数等信息",
+        "operationId": "get_db_pool_status_api_v1_system_db_pool_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabasePoolResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/redis": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取 Redis 连接信息",
+        "description": "获取 Redis 连接信息\n\n返回 Redis 客户端连接数、内存使用、运行时间等信息",
+        "operationId": "get_redis_info_api_v1_system_redis_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedisConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/metrics": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取所有系统指标",
+        "description": "获取所有系统监控指标\n\n一次性返回 CPU、内存、磁盘、网络、数据库连接池、Redis 连接等信息",
+        "operationId": "get_all_metrics_api_v1_system_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemMetricsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "健康检查",
+        "description": "检查服务是否正常运行",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "服务健康",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Health Check Health Get"
+                },
+                "example": {
+                  "status": "healthy",
+                  "service": "inventory-microservice",
+                  "version": "1.0.0"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "API 根路径",
+        "description": "API 服务的根路径信息",
+        "operationId": "read_root__get",
+        "responses": {
+          "200": {
+            "description": "成功返回",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Read Root  Get"
+                },
+                "example": {
+                  "message": "欢迎使用库存微服务",
+                  "docs": "/docs",
+                  "health": "/health"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdjustStockRequest": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "examples": [
+              "WH01"
+            ]
+          },
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "examples": [
+              1
+            ]
+          },
+          "adjust_type": {
+            "type": "string",
+            "title": "Adjust Type",
+            "description": "调整类型：increase(增加) / decrease(减少) / set(设置为)",
+            "examples": [
+              "increase"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "调整数量",
+            "examples": [
+              10
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Reason",
+            "description": "调整原因",
+            "examples": [
+              "盘点修正"
+            ]
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator",
+            "description": "操作人",
+            "examples": [
+              "admin"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "adjust_type",
+          "quantity",
+          "reason"
+        ],
+        "title": "AdjustStockRequest",
+        "description": "库存调整请求"
+      },
+      "AdjustStockResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id",
+            "description": "仓库ID"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id",
+            "description": "商品ID"
+          },
+          "before_available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Available",
+            "description": "调整前可用库存"
+          },
+          "after_available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Available",
+            "description": "调整后可用库存"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "AdjustStockResponse",
+        "description": "库存调整响应"
+      },
+      "BatchReleaseRequest": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Order Id",
+            "description": "订单 ID",
+            "examples": [
+              "ORD202401010001"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id"
+        ],
+        "title": "BatchReleaseRequest",
+        "description": "批量释放请求"
+      },
+      "BatchReserveItem": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "examples": [
+              "WH01"
+            ]
+          },
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "examples": [
+              1
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "预占数量",
+            "examples": [
+              2
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "quantity"
+        ],
+        "title": "BatchReserveItem",
+        "description": "批量预占单项"
+      },
+      "BatchReserveItemResponse": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "title": "Warehouse Id"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "success",
+          "message"
+        ],
+        "title": "BatchReserveItemResponse",
+        "description": "批量预占单项响应"
+      },
+      "BatchReserveRequest": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Order Id",
+            "description": "订单 ID",
+            "examples": [
+              "ORD202401010001"
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchReserveItem"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items",
+            "description": "预占商品列表",
+            "examples": [
+              [
+                {
+                  "product_id": 1,
+                  "quantity": 2,
+                  "warehouse_id": "WH01"
+                },
+                {
+                  "product_id": 2,
+                  "quantity": 3,
+                  "warehouse_id": "WH01"
+                }
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "items"
+        ],
+        "title": "BatchReserveRequest",
+        "description": "批量预占请求"
+      },
+      "BatchReserveResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id",
+            "description": "订单ID"
+          },
+          "total_items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Items",
+            "description": "总商品数"
+          },
+          "success_items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Items",
+            "description": "成功商品数"
+          },
+          "failed_items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Items",
+            "description": "失败商品数"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BatchReserveItemResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "详细结果"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "BatchReserveResponse",
+        "description": "批量预占响应"
+      },
+      "BatchStockQueryRequest": {
+        "properties": {
+          "product_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Product Ids",
+            "description": "商品 ID 列表",
+            "examples": [
+              [
+                1,
+                2,
+                3
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_ids"
+        ],
+        "title": "BatchStockQueryRequest",
+        "description": "批量查询库存请求"
+      },
+      "BatchStockResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "data": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Data",
+            "description": "商品ID到库存数量的映射"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "title": "BatchStockResponse",
+        "description": "批量库存查询响应"
+      },
+      "CpuResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "cpu_percent": {
+            "type": "number",
+            "title": "Cpu Percent",
+            "default": 0.0
+          },
+          "cpu_count": {
+            "type": "integer",
+            "title": "Cpu Count",
+            "default": 0
+          },
+          "cpu_freq": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Freq"
+          },
+          "per_cpu": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Cpu"
+          }
+        },
+        "type": "object",
+        "title": "CpuResponse",
+        "description": "CPU 使用率响应"
+      },
+      "CustomTestRequest": {
+        "properties": {
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/SinglePerfTestRequest"
+            },
+            "type": "array",
+            "title": "Tests",
+            "description": "测试列表"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tests"
+        ],
+        "title": "CustomTestRequest",
+        "description": "自定义测试请求"
+      },
+      "DatabasePoolResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "pool_size": {
+            "type": "integer",
+            "title": "Pool Size",
+            "default": 0
+          },
+          "checked_in": {
+            "type": "integer",
+            "title": "Checked In",
+            "default": 0
+          },
+          "checked_out": {
+            "type": "integer",
+            "title": "Checked Out",
+            "default": 0
+          },
+          "overflow": {
+            "type": "integer",
+            "title": "Overflow",
+            "default": 0
+          },
+          "invalid": {
+            "type": "integer",
+            "title": "Invalid",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "DatabasePoolResponse",
+        "description": "数据库连接池响应"
+      },
+      "DiskResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "used": {
+            "type": "integer",
+            "title": "Used",
+            "default": 0
+          },
+          "free": {
+            "type": "integer",
+            "title": "Free",
+            "default": 0
+          },
+          "percent": {
+            "type": "number",
+            "title": "Percent",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "DiskResponse",
+        "description": "磁盘使用率响应"
+      },
+      "FreezeStockRequest": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "examples": [
+              "WH01"
+            ]
+          },
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "examples": [
+              1
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "冻结数量",
+            "examples": [
+              5
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "冻结原因",
+            "examples": [
+              "待检品"
+            ]
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator",
+            "description": "操作人",
+            "examples": [
+              "admin"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "quantity"
+        ],
+        "title": "FreezeStockRequest",
+        "description": "冻结库存请求"
+      },
+      "FreezeStockResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id",
+            "description": "仓库ID"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id",
+            "description": "商品ID"
+          },
+          "before_frozen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Frozen",
+            "description": "操作前冻结库存"
+          },
+          "after_frozen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Frozen",
+            "description": "操作后冻结库存"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "FreezeStockResponse",
+        "description": "冻结/解冻响应"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "IncreaseStockRequest": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "examples": [
+              "WH01"
+            ]
+          },
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "examples": [
+              1
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "入库数量",
+            "examples": [
+              100
+            ]
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id",
+            "description": "入库单号（可选）",
+            "examples": [
+              "RK202401010001"
+            ]
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator",
+            "description": "操作人",
+            "examples": [
+              "admin"
+            ]
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark",
+            "description": "备注",
+            "examples": [
+              "常规补货"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "quantity"
+        ],
+        "title": "IncreaseStockRequest",
+        "description": "入库/补货请求"
+      },
+      "IncreaseStockResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id",
+            "description": "仓库ID"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id",
+            "description": "商品ID"
+          },
+          "before_stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Stock",
+            "description": "入库前库存"
+          },
+          "after_stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Stock",
+            "description": "入库后库存"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "IncreaseStockResponse",
+        "description": "入库响应"
+      },
+      "InventoryLogDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id",
+            "description": "仓库ID"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "change_type": {
+            "type": "string",
+            "title": "Change Type"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity"
+          },
+          "before_available": {
+            "type": "integer",
+            "title": "Before Available"
+          },
+          "after_available": {
+            "type": "integer",
+            "title": "After Available"
+          },
+          "before_reserved": {
+            "type": "integer",
+            "title": "Before Reserved",
+            "description": "变更前预占库存",
+            "default": 0
+          },
+          "after_reserved": {
+            "type": "integer",
+            "title": "After Reserved",
+            "description": "变更后预占库存",
+            "default": 0
+          },
+          "before_frozen": {
+            "type": "integer",
+            "title": "Before Frozen",
+            "description": "变更前冻结库存",
+            "default": 0
+          },
+          "after_frozen": {
+            "type": "integer",
+            "title": "After Frozen",
+            "description": "变更后冻结库存",
+            "default": 0
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark",
+            "description": "备注"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "order_id",
+          "change_type",
+          "quantity",
+          "before_available",
+          "after_available",
+          "created_at",
+          "operator",
+          "source"
+        ],
+        "title": "InventoryLogDetail",
+        "description": "库存变更日志详情"
+      },
+      "InventoryPerfResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "summary": {
+            "type": "object",
+            "title": "Summary",
+            "default": {}
+          },
+          "tests": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Tests",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "InventoryPerfResponse",
+        "description": "库存性能测试响应"
+      },
+      "InventoryPerfTestRequest": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "default": 1
+          },
+          "warehouse_id": {
+            "type": "string",
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "default": "WH01"
+          },
+          "concurrency": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Concurrency",
+            "description": "并发数",
+            "default": 100
+          },
+          "total_requests": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Total Requests",
+            "description": "总请求数",
+            "default": 1000
+          }
+        },
+        "type": "object",
+        "title": "InventoryPerfTestRequest",
+        "description": "库存性能测试请求"
+      },
+      "MemoryResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "available": {
+            "type": "integer",
+            "title": "Available",
+            "default": 0
+          },
+          "used": {
+            "type": "integer",
+            "title": "Used",
+            "default": 0
+          },
+          "percent": {
+            "type": "number",
+            "title": "Percent",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "MemoryResponse",
+        "description": "内存使用率响应"
+      },
+      "NetworkResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "bytes_sent": {
+            "type": "integer",
+            "title": "Bytes Sent",
+            "default": 0
+          },
+          "bytes_recv": {
+            "type": "integer",
+            "title": "Bytes Recv",
+            "default": 0
+          },
+          "packets_sent": {
+            "type": "integer",
+            "title": "Packets Sent",
+            "default": 0
+          },
+          "packets_recv": {
+            "type": "integer",
+            "title": "Packets Recv",
+            "default": 0
+          },
+          "errin": {
+            "type": "integer",
+            "title": "Errin",
+            "default": 0
+          },
+          "errout": {
+            "type": "integer",
+            "title": "Errout",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "NetworkResponse",
+        "description": "网络流量响应"
+      },
+      "OperationResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "操作结果"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "OperationResponse",
+        "description": "操作响应（预占、确认、释放）"
+      },
+      "PaginatedLogsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryLogDetail"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "日志列表"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "总记录数"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "当前页码"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "description": "每页数量"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages",
+            "description": "总页数"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "PaginatedLogsResponse",
+        "description": "分页库存流水响应"
+      },
+      "PerfTestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "test_name": {
+            "type": "string",
+            "title": "Test Name",
+            "default": ""
+          },
+          "metrics": {
+            "type": "object",
+            "title": "Metrics",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "PerfTestResponse",
+        "description": "性能测试响应"
+      },
+      "RedisConnectionResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "connected_clients": {
+            "type": "integer",
+            "title": "Connected Clients",
+            "default": 0
+          },
+          "used_memory": {
+            "type": "integer",
+            "title": "Used Memory",
+            "default": 0
+          },
+          "used_memory_human": {
+            "type": "string",
+            "title": "Used Memory Human",
+            "default": ""
+          },
+          "total_connections_received": {
+            "type": "integer",
+            "title": "Total Connections Received",
+            "default": 0
+          },
+          "total_commands_processed": {
+            "type": "integer",
+            "title": "Total Commands Processed",
+            "default": 0
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "title": "Uptime Seconds",
+            "default": 0
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "RedisConnectionResponse",
+        "description": "Redis 连接响应"
+      },
+      "SinglePerfTestRequest": {
+        "properties": {
+          "api_name": {
+            "type": "string",
+            "title": "Api Name",
+            "description": "API 名称"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "description": "HTTP 方法",
+            "default": "GET"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "API 路径"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "请求体数据"
+          },
+          "concurrency": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Concurrency",
+            "description": "并发数",
+            "default": 100
+          },
+          "total_requests": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Total Requests",
+            "description": "总请求数",
+            "default": 1000
+          },
+          "timeout": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Timeout",
+            "description": "超时时间 (秒)",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_name",
+          "path"
+        ],
+        "title": "SinglePerfTestRequest",
+        "description": "单个性能测试请求"
+      },
+      "StockResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "请求是否成功"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "响应消息"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id",
+            "description": "仓库ID"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id",
+            "description": "商品ID"
+          },
+          "available_stock": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Available Stock",
+            "description": "可用库存"
+          },
+          "reserved_stock": {
+            "type": "integer",
+            "title": "Reserved Stock",
+            "description": "预占库存",
+            "default": 0
+          },
+          "frozen_stock": {
+            "type": "integer",
+            "title": "Frozen Stock",
+            "description": "冻结库存",
+            "default": 0
+          },
+          "in_transit_stock": {
+            "type": "integer",
+            "title": "In Transit Stock",
+            "description": "在途库存",
+            "default": 0
+          },
+          "safety_stock": {
+            "type": "integer",
+            "title": "Safety Stock",
+            "description": "安全库存",
+            "default": 0
+          },
+          "total_stock": {
+            "type": "integer",
+            "title": "Total Stock",
+            "description": "总库存（可用+预占+冻结+在途）",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "product_id",
+          "available_stock"
+        ],
+        "title": "StockResponse",
+        "description": "单个商品库存响应"
+      },
+      "StressTestRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "API 路径"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "description": "HTTP 方法",
+            "default": "GET"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "请求体数据"
+          },
+          "start_concurrency": {
+            "type": "integer",
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Start Concurrency",
+            "description": "起始并发数",
+            "default": 100
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Max Concurrency",
+            "description": "最大并发数",
+            "default": 1000
+          },
+          "step": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 10.0,
+            "title": "Step",
+            "description": "递增步长",
+            "default": 100
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "StressTestRequest",
+        "description": "压力测试请求"
+      },
+      "StressTestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "test_type": {
+            "type": "string",
+            "title": "Test Type",
+            "default": "stress"
+          },
+          "results": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "StressTestResponse",
+        "description": "压力测试响应"
+      },
+      "SystemMetricsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "data": {
+            "type": "object",
+            "title": "Data",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "SystemMetricsResponse",
+        "description": "系统指标响应"
+      },
+      "UnfreezeStockRequest": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Warehouse Id",
+            "description": "仓库 ID",
+            "examples": [
+              "WH01"
+            ]
+          },
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Product Id",
+            "description": "商品 ID",
+            "examples": [
+              1
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "解冻数量",
+            "examples": [
+              5
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "解冻原因",
+            "examples": [
+              "检验通过"
+            ]
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator",
+            "description": "操作人",
+            "examples": [
+              "admin"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "product_id",
+          "quantity"
+        ],
+        "title": "UnfreezeStockRequest",
+        "description": "解冻库存请求"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "库存管理",
+      "description": "库存预占、确认、释放等核心操作"
+    },
+    {
+      "name": "库存查询",
+      "description": "库存数量查询接口"
+    },
+    {
+      "name": "任务管理",
+      "description": "清理任务和异步任务管理"
+    }
+  ]
+}
